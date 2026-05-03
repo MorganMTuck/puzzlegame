@@ -1,0 +1,337 @@
+```html id="full-html-slide-puzzle"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Slide Puzzle</title>
+<style>
+  body {
+    margin: 0;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-family: system-ui, -apple-system, sans-serif;
+    text-align: center;
+  }
+  h1 { margin: 16px 0; }
+
+  canvas {
+    display: block;
+    margin: 0 auto;
+    background: #000;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  }
+
+  .controls { margin: 16px; }
+
+  button {
+    padding: 10px 16px;
+    margin: 6px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+
+  #help { background: #22c55e; }
+  #auto { background: #3b82f6; }
+  #reset { background: #ef4444; }
+
+  button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+</style>
+</head>
+<body>
+
+<h1>Slide Puzzle</h1>
+<canvas id="game" width="360" height="420"></canvas>
+
+<div class="controls">
+  <button id="help" disabled>HELP (5 moves)</button>
+  <button id="auto" disabled>AUTO SOLVE</button>
+  <button id="reset">RESET</button>
+</div>
+
+<script>
+// =====================
+// CONFIG
+// =====================
+const GRID = 3;
+const SIZE = 120;
+const EMPTY = GRID*GRID - 1;
+
+// =====================
+// CANVAS
+// =====================
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+// =====================
+// INLINE IMAGE (SVG DATA URL)
+// =====================
+const image = new Image();
+image.src =
+"data:image/svg+xml;charset=utf-8," +
+encodeURIComponent(`
+<svg xmlns='http://www.w3.org/2000/svg' width='360' height='360'>
+  <defs>
+    <linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>
+      <stop offset='0%' stop-color='#6366f1'/>
+      <stop offset='100%' stop-color='#22c55e'/>
+    </linearGradient>
+  </defs>
+  <rect width='360' height='360' fill='url(#g)'/>
+  <g fill='white' font-size='40' font-family='Arial' text-anchor='middle'>
+    <text x='60' y='70'>1</text>
+    <text x='180' y='70'>2</text>
+    <text x='300' y='70'>3</text>
+    <text x='60' y='190'>4</text>
+    <text x='180' y='190'>5</text>
+    <text x='300' y='190'>6</text>
+    <text x='60' y='310'>7</text>
+    <text x='180' y='310'>8</text>
+  </g>
+</svg>
+`);
+
+// =====================
+// STATE
+// =====================
+let tiles = [];
+let startTime = Date.now();
+let solution = [];
+let solving = false;
+
+const helpBtn = document.getElementById("help");
+const autoBtn = document.getElementById("auto");
+
+// =====================
+// UTILS
+// =====================
+function isSolved(a){
+  return a.every((v,i)=>v===i);
+}
+
+function isSolvable(arr){
+  let inv=0;
+  for(let i=0;i<arr.length;i++){
+    for(let j=i+1;j<arr.length;j++){
+      if(arr[i]!==EMPTY && arr[j]!==EMPTY && arr[i]>arr[j]) inv++;
+    }
+  }
+  return inv%2===0;
+}
+
+function shuffle(){
+  let arr=[...Array(GRID*GRID).keys()];
+  do{
+    arr.sort(()=>Math.random()-0.5);
+  } while(!isSolvable(arr) || isSolved(arr));
+  return arr;
+}
+
+// =====================
+// DRAW
+// =====================
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  tiles.forEach((tile,i)=>{
+    if(tile===EMPTY) return;
+
+    const r=Math.floor(i/GRID);
+    const c=i%GRID;
+
+    const sr=Math.floor(tile/GRID);
+    const sc=tile%GRID;
+
+    ctx.drawImage(
+      image,
+      sc*SIZE, sr*SIZE, SIZE, SIZE,
+      c*SIZE, r*SIZE, SIZE, SIZE
+    );
+  });
+
+  const t=Math.floor((Date.now()-startTime)/1000);
+  ctx.fillStyle="#fff";
+  ctx.fillText("Time: "+t+"s",10,395);
+
+  if(isSolved(tiles)){
+    ctx.fillStyle="#22c55e";
+    ctx.font="24px sans-serif";
+    ctx.fillText("YOU WIN!",120,200);
+  }
+}
+
+// =====================
+// MOVE
+// =====================
+function move(i){
+  const empty=tiles.indexOf(EMPTY);
+  const sameRow=Math.floor(i/GRID)===Math.floor(empty/GRID);
+
+  if(
+    (sameRow && Math.abs(i-empty)===1) ||
+    Math.abs(i-empty)===GRID
+  ){
+    [tiles[i],tiles[empty]]=[tiles[empty],tiles[i]];
+  }
+}
+
+// =====================
+// SOLVER (A*)
+// =====================
+function manhattan(s){
+  let d=0;
+  for(let i=0;i<s.length;i++){
+    if(s[i]===EMPTY) continue;
+    let tr=Math.floor(s[i]/GRID);
+    let tc=s[i]%GRID;
+    let r=Math.floor(i/GRID);
+    let c=i%GRID;
+    d+=Math.abs(r-tr)+Math.abs(c-tc);
+  }
+  return d;
+}
+
+function neighbors(s){
+  let res=[];
+  let e=s.indexOf(EMPTY);
+  let r=Math.floor(e/GRID),c=e%GRID;
+
+  let moves=[];
+  if(r>0) moves.push(e-GRID);
+  if(r<GRID-1) moves.push(e+GRID);
+  if(c>0) moves.push(e-1);
+  if(c<GRID-1) moves.push(e+1);
+
+  for(let m of moves){
+    let ns=[...s];
+    [ns[e],ns[m]]=[ns[m],ns[e]];
+    res.push(ns);
+  }
+  return res;
+}
+
+function solve(start){
+  let goal=[...Array(GRID*GRID).keys()];
+  let open=[[0,start]];
+  let came=new Map();
+  let g=new Map([[start.toString(),0]]);
+
+  while(open.length){
+    open.sort((a,b)=>a[0]-b[0]);
+    let [_,cur]=open.shift();
+
+    if(cur.toString()===goal.toString()){
+      let path=[];
+      while(came.has(cur.toString())){
+        path.push(cur);
+        cur=came.get(cur.toString());
+      }
+      return path.reverse();
+    }
+
+    for(let n of neighbors(cur)){
+      let key=n.toString();
+      let ng=g.get(cur.toString())+1;
+
+      if(!g.has(key)||ng<g.get(key)){
+        came.set(key,cur);
+        g.set(key,ng);
+        open.push([ng+manhattan(n),n]);
+      }
+    }
+  }
+  return [];
+}
+
+// =====================
+// HELP
+// =====================
+function help(){
+  if(solution.length===0){
+    solution=solve(tiles);
+  }
+  for(let i=0;i<5;i++){
+    if(!solution.length) break;
+    tiles=solution.shift();
+  }
+}
+
+// =====================
+// AUTO
+// =====================
+function autoSolve(){
+  if(solution.length===0){
+    solution=solve(tiles);
+  }
+  solving=true;
+}
+
+function stepAuto(){
+  if(!solving) return;
+  if(!solution.length){
+    solving=false;
+    return;
+  }
+  tiles=solution.shift();
+}
+
+// =====================
+// EVENTS
+// =====================
+canvas.onclick=(e)=>{
+  const rect=canvas.getBoundingClientRect();
+  const x=e.clientX-rect.left;
+  const y=e.clientY-rect.top;
+
+  if(y<GRID*SIZE){
+    const c=Math.floor(x/SIZE);
+    const r=Math.floor(y/SIZE);
+    move(r*GRID+c);
+  }
+};
+
+helpBtn.onclick=help;
+autoBtn.onclick=autoSolve;
+
+document.getElementById("reset").onclick=()=>{
+  tiles=shuffle();
+  solution=[];
+  solving=false;
+  startTime=Date.now();
+  helpBtn.disabled=true;
+  autoBtn.disabled=true;
+};
+
+// =====================
+// LOOP
+// =====================
+function loop(){
+  const elapsed=(Date.now()-startTime)/1000;
+
+  if(elapsed>30) helpBtn.disabled=false;
+  if(elapsed>120) autoBtn.disabled=false;
+
+  stepAuto();
+  draw();
+
+  requestAnimationFrame(loop);
+}
+
+// =====================
+// START
+// =====================
+image.onload=()=>{
+  tiles=shuffle();
+  loop();
+};
+</script>
+
+</body>
+</html>
+```
